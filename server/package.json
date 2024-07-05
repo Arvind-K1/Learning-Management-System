@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "description": "This is backend part for the LMS project",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "dev": "nodemon -r dotenv/config --experimental-json-module index.js"
+    "dev": "nodemon "
   },
   "author": "Arvind Kandpal",
   "license": "ISC",
