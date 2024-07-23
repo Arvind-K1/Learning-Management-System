@@ -4,8 +4,7 @@ import cloudinary from "cloudinary";
 import Razorpay from "razorpay";
 
 
-const dotenv = require('dotenv');
-dotenv.config({ path: './config.env' });
+
 
 cloudinary.v2.config({
     cloud_name: process.env.CLOUDINART_CLOUD_NAME,
@@ -30,4 +29,4 @@ connectDB()
     })
 
 
-module.exports = razorpay;
+export {razorpay}

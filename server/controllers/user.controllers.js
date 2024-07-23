@@ -1,20 +1,21 @@
 import User from '../models/user.model.js';
+import asyncHandler from '../middlewares/asyncHandler.middleware.js';
 
 //import from utils
-import sendEmail from '../utils/sendEmail.js';
-import AppError from '../utils/appError.js';
+import {sendEmail} from '../utils/sendEmail.js';
+import {AppError} from '../utils/appError.js';
 
 import cloudinary from 'cloudinary';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 
 const cookieOptions = {
-    secure: true,
+    secure: process.env.NODE_ENV === 'production' ? true : false,
     maxAge: 7*24*60*60*1000,
     httpOnly: true
-}
+};
 
-const register = async (req,res,next) => {
+const register = asyncHandler( async (req,res,next) => {
     const {fullName, email, password} = req.body;
     
     if(!fullName || !email || !password){
@@ -34,7 +35,7 @@ const register = async (req,res,next) => {
             public_id: email,
             secure_url: ""
         }
-    })
+    });
 
     if (!User){
         return next(new AppError('User not created',400));
@@ -63,16 +64,20 @@ const register = async (req,res,next) => {
     }
     await user.save();
 
+    const token = await user.generateJWTToken();
+
     user.password = undefined;
+
+    res.cookie('token', token, cookieOptions);
 
     res.status(200).json({
         success: true,
         message: 'User registered Successfully',
         user
     })
-};
+});
 
-const login = async (req,res,next) => {
+const login = asyncHandler( async (req,res,next) => {
     const {email, password} = req.body;
 
     if(!email || !password){
@@ -81,9 +86,11 @@ const login = async (req,res,next) => {
 
     const user = await User.findOne({email}).select('+password');
 
-    if(!user || !user.comparePassword(password)){
-        return next(new AppError('Invalid email or password',400));
-    }
+    if (!(user && (await user.comparePassword(password)))) {
+        return next(
+          new AppError('Email or Password do not match or user does not exist', 401)
+        );
+      }
 
     const token = await user.generateJWTToken();
     user.password = undefined;
@@ -95,11 +102,11 @@ const login = async (req,res,next) => {
         message: 'User logged in successfully',
         user
     })
-};
+});
 
-const logout = (req,res) => {
+const logout = asyncHandler(async (_req,res,_next) => {
     res.cookie('token',null,{
-        secure: true,
+        secure: process.env.NODE_ENV === 'production' ? true : false,
         maxAge: 0,
         httpOnly: true
     });
@@ -108,9 +115,9 @@ const logout = (req,res) => {
         success: true,
         message: 'User logged out successfully'
     })
-};
+});
 
-const getProfile = (req,res) => {
+const getProfile = asyncHandler(async (req,res,_next) => {
     const user = User.findById(req.user.id);
 
     res.status(200).json({
@@ -118,9 +125,9 @@ const getProfile = (req,res) => {
         message: 'User profile fetched successfully',
         user
     })
-};
+});
 
-const forgotPassword = async (req,res,next) => {
+const forgotPassword = asyncHandler( async (req,res,next) => {
     const {email} = req.body;
 
     if(!email){
@@ -138,7 +145,9 @@ const forgotPassword = async (req,res,next) => {
     await user.save();
 
     const resetPasswordUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
     const subject = 'Reset Password';
+
     const message = `You can reset your password by clicking <a href=${resetPasswordUrl} target="_blank">Reset your Password </a> \nIf the above link does not work for some reason then copy paste this link in new tab ${resetPasswordUrl}.\n If you have not requested this, kindly ignored `
 
     try{
@@ -158,9 +167,9 @@ const forgotPassword = async (req,res,next) => {
         return next(new AppError(e.message,500));
     }
 
-}
+});
 
-const resetPassword = async (req,res,next) => {
+const resetPassword = asyncHandler( async (req,res,next) => {
     const {resetToken} = req.params;
     const {password} = req.body;
 
@@ -168,6 +177,10 @@ const resetPassword = async (req,res,next) => {
         .createHash('sha256')
         .update(resetToken)
         .digest('hex');
+
+    if (!password) {
+        return next(new AppError('Password is required', 400));
+    }
 
     const user = User.findOne({
         forgotPasswordToken,
@@ -188,9 +201,9 @@ const resetPassword = async (req,res,next) => {
         success: true,
         message: 'Password reset successfully'
     })
-};
+});
 
-const changePassword = async (req,res,next) => {
+const changePassword = asyncHandler( async (req,res,next) => {
     const {oldPassword,newPassword} = req.body;
     const {id} = req.user;
 
@@ -204,7 +217,7 @@ const changePassword = async (req,res,next) => {
         return next(new AppError('User does not exist',400));
     }
 
-    const isPasswordValid = await user.comparePassword(password);
+    const isPasswordValid = await user.comparePassword(oldPassword);
 
     if(!isPasswordValid){
         return next(new AppError('Old password is incorrect',400));
@@ -219,9 +232,9 @@ const changePassword = async (req,res,next) => {
         success: true,
         message: "Password changed successfully"
     })
-}
+});
 
-const updateUser = async function(req,res,next) {
+const updateUser = asyncHandler( async (req,res,next) => {
     const {fullName} = req.body;
     const {id} = req.user;
 
@@ -237,21 +250,28 @@ const updateUser = async function(req,res,next) {
 
     if(req.file){
         await cloudinary.v2.uploader.destroy(user.avatar.public_id);
-
-        const result = await cloudinary.v2.uploader.upload(req.file.path,{
-            folder: 'lms',
-            width: 250,
-            height:250,
-            gravity: 'faces',
-            crop: 'fill'
-        });
-
-        if(result){
-            user.avatar.public_id = result.public_id;
-            user.avatar.secure_url = result.secure_url;
-
-            fs.rm(`uploads/${req.file.filename}`);
+        try {
+            const result = await cloudinary.v2.uploader.upload(req.file.path,{
+                folder: 'lms',
+                width: 250,
+                height:250,
+                gravity: 'faces',
+                crop: 'fill'
+            });
+    
+            if(result){
+                user.avatar.public_id = result.public_id;
+                user.avatar.secure_url = result.secure_url;
+    
+                fs.rm(`uploads/${req.file.filename}`);
+            }
+        } catch (error) {
+            return next(
+                new AppError(error || 'File not uploaded, please try again', 400)
+              );
         }
+        
+        
     }
 
     await user.save();
@@ -260,7 +280,7 @@ const updateUser = async function(req,res,next) {
         success: true,
         message: "User updated successfully"
     })
-};
+});
 
 
 export {

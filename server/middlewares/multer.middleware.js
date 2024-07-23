@@ -1,6 +1,5 @@
 import path from 'path';
 import multer from 'multer';
-import {  markAsUntransferable } from 'worker_threads';
 
 const upload = multer({
     dest : 'uploads/',

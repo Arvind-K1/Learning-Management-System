@@ -1,7 +1,7 @@
 import express from 'express';
 
-import { buySubscription, cancelSubscription, getAllPayments, getRazorpayApiKey, verifySubscription } from '../controllers/payment.controllers';
-import { authorizedRole, isLoggedIn } from '../middlewares/auth.middleware';
+import { buySubscription, cancelSubscription, getAllPayments, getRazorpayApiKey, verifySubscription } from '../controllers/payment.controllers.js';
+import { authorizedRole, isLoggedIn, authorizedSubscriber } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -30,6 +30,7 @@ router
     .route('/unsubscribe')
     .post(
         isLoggedIn,
+        authorizedSubscriber,
         cancelSubscription
     );
 
